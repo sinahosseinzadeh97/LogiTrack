@@ -264,4 +264,4 @@ See [`docs/TECHNICAL_DEEP_DIVE.md`](docs/TECHNICAL_DEEP_DIVE.md) for architectur
 
 ## License
 
-Proprietary — LogiTrack Engineering Team, 2026
+Sina MohammadHosseinzadeh
