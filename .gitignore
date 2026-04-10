@@ -1,0 +1,94 @@
+# =============================================================================
+# LogiTrack — Git ignore rules
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Secrets & environment
+# ---------------------------------------------------------------------------
+.env
+*.env
+!.env.example
+# .env.development contains real (dev) secrets — do not commit
+.env.development
+
+# ---------------------------------------------------------------------------
+# Raw data (large CSV files, not versioned)
+# ---------------------------------------------------------------------------
+data/raw/*.csv
+data/raw/*.zip
+data/processed/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+eggs/
+*.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Mypy / type-checking cache
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pytest
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Ruff
+.ruff_cache/
+
+# ---------------------------------------------------------------------------
+# IDE / editors
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# Docker
+# ---------------------------------------------------------------------------
+# docker/nginx.conf is now committed (phase 07)
+docker/ssl/cert.pem   # generated SSL certificate — never commit
+docker/ssl/key.pem    # generated SSL private key — never commit
+
+# ---------------------------------------------------------------------------
+# Node (frontend — Phase 2)
+# ---------------------------------------------------------------------------
+node_modules/
+frontend/dist/
+frontend/.next/
+frontend/out/
+
+# ---------------------------------------------------------------------------
+# Alembic
+# ---------------------------------------------------------------------------
+# Do NOT ignore alembic/versions/*.py — migrations are source-controlled.
+
+# ---------------------------------------------------------------------------
+# Misc
+# ---------------------------------------------------------------------------
+*.log
+*.pid
+*.sqlite3
+.hypothesis/

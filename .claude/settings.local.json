@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\)[0]; nets=d['NetworkSettings']['Networks']; [print\\(k,v.get\\('IPAddress',''\\)\\) for k,v in nets.items\\(\\)]\")",
+      "Bash(lsof -iTCP -sTCP:LISTEN -P)",
+      "Bash(awk '{print $9}')",
+      "Bash(docker compose:*)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(docker exec logitrack_postgres:*)",
+      "Bash(docker exec:*)",
+      "Bash(ls /Users/sinamohammadhosseinzadeh/Desktop/LogiTrack/data/raw/*.csv)",
+      "Bash(curl -s http://localhost:8001/health)",
+      "Bash(python3 -m json.tool)",
+      "Bash(nohup python3:*)",
+      "Bash(echo \"Frontend PID: $!\")",
+      "Bash(curl:*)",
+      "Bash(grep -r \"8000\\\\|/api\" /Users/sinamohammadhosseinzadeh/Desktop/LogiTrack/frontend/dist/assets/*.js)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('scripts',{}\\)\\)\")",
+      "Bash(npm --version)",
+      "Bash(VITE_API_URL=http://localhost:8001 npm run build)",
+      "Bash(VITE_API_URL=http://localhost:8001 /Users/sinamohammadhosseinzadeh/Desktop/LogiTrack/frontend/node_modules/.bin/vite build)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('JWT OK:', bool\\(d.get\\('access_token'\\)\\)\\)\")",
+      "Bash(python3 -c ':*)",
+      "Bash(VITE_API_URL=http://localhost:8001 node_modules/.bin/vite build)",
+      "Bash(VITE_API_URL=http://localhost:8001 npx vite build)",
+      "Bash(pkill -f \"python3 -m http.server 5175\")",
+      "Bash(pkill -f \"http.server 5175\")"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "postgresql"
+  ]
+}

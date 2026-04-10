@@ -1,0 +1,246 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch when a new commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/logitrack
+
+# =============================================================================
+# Jobs
+# =============================================================================
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # 1. Lint Python (ruff) + TypeScript (eslint)
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Python lint ─────────────────────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install ruff
+        run: pip install "ruff>=0.4.4"
+
+      - name: Run ruff
+        run: ruff check backend/app backend/core backend/ml backend/etl backend/reports
+
+      # ── TypeScript / ESLint ─────────────────────────────────────────────────
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci --prefer-offline
+
+      - name: Run ESLint
+        working-directory: frontend
+        run: npm run lint
+
+  # ---------------------------------------------------------------------------
+  # 2. Backend tests (pytest + PostgreSQL service container)
+  # ---------------------------------------------------------------------------
+  test-backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: logitrack_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: logitrack_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U logitrack_test -d logitrack_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL:           postgresql+asyncpg://logitrack_test:test_password@localhost:5432/logitrack_test
+      DATABASE_SYNC_URL:      postgresql+psycopg2://logitrack_test:test_password@localhost:5432/logitrack_test
+      SECRET_KEY:             "ci_test_secret_key_that_is_long_enough_for_hs256_algorithm"
+      ALGORITHM:              HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      REFRESH_TOKEN_EXPIRE_DAYS:   7
+      S3_ENDPOINT_URL:        http://localhost:9000
+      S3_ACCESS_KEY:          minioadmin
+      S3_SECRET_KEY:          minioadmin
+      S3_BUCKET_NAME:         logitrack-test
+      ALERT_THRESHOLD:        "0.65"
+      DATA_RAW_PATH:          data/raw
+      ENVIRONMENT:            development
+      MINIO_ROOT_USER:        minioadmin
+      MINIO_ROOT_PASSWORD:    minioadmin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run Alembic migrations
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Run pytest with coverage
+        working-directory: backend
+        run: |
+          pytest tests/ \
+            -v \
+            --tb=short \
+            --cov=app \
+            --cov=core \
+            --cov=ml \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=80
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+
+  # ---------------------------------------------------------------------------
+  # 3. Frontend tests (vitest)
+  # ---------------------------------------------------------------------------
+  test-frontend:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps
+        working-directory: frontend
+        run: npm ci --prefer-offline
+
+      - name: Run vitest
+        working-directory: frontend
+        run: npm run test -- --run --reporter=verbose
+
+  # ---------------------------------------------------------------------------
+  # 4. Docker build (both images)
+  # Runs in parallel with tests; does not push.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: [lint]           # only build if lint passes
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.backend
+          push: false
+          tags: ${{ env.IMAGE_PREFIX }}-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.frontend
+          push: false
+          tags: ${{ env.IMAGE_PREFIX }}-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # 5. Security scan — Trivy image vulnerability scanner
+  # Runs after build; reports results as SARIF (GitHub Security tab).
+  # ---------------------------------------------------------------------------
+  security-scan:
+    name: Security scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: [build]
+    permissions:
+      security-events: write    # upload SARIF to GitHub Security tab
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Rebuild (from cache) to get a local image ref for scanning
+      - name: Build backend image (from cache)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.backend
+          push: false
+          load: true
+          tags: logitrack-backend:scan
+          cache-from: type=gha
+
+      - name: Scan backend image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: logitrack-backend:scan
+          format: sarif
+          output: trivy-backend.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "0"     # do not fail the build; report only
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-backend.sarif
+          category: trivy-backend

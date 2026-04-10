@@ -1,0 +1,10 @@
+{
+  "distance_km": 0.13599772181521377,
+  "seller_historical_delay_rate": 0.3550096761402118,
+  "day_of_week": 0.03742213321970039,
+  "month": 0.18798333292876349,
+  "category_encoded": 0.05461513748365384,
+  "seller_state_encoded": 0.02604060586537765,
+  "freight_value": 0.11818993907923668,
+  "price": 0.08474145346784233
+}
