@@ -263,5 +263,6 @@ See [`docs/TECHNICAL_DEEP_DIVE.md`](docs/TECHNICAL_DEEP_DIVE.md) for architectur
 ---
 
 ## License
+Linkedin:https://www.linkedin.com/in/sina-hosseinzade20/
 
 Sina MohammadHosseinzadeh
