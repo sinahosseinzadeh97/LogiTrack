@@ -1,104 +1,60 @@
-"""
-ETL pipeline entry-point.
+"""ETL entry point: ``python -m etl.run [--data-dir DIR] [--if-empty]``.
 
-Run as a module from the project root::
-
-    python -m etl.run
-
-The script reads configuration from the environment (via :mod:`app.config`),
-executes the three-stage pipeline (clean → enrich → load), and exits with
-code 0 on success or 1 on failure.
-
-Environment variables required
--------------------------------
-DATABASE_SYNC_URL : str
-    Synchronous PostgreSQL DSN for the load step.
-DATA_RAW_PATH : str
-    Path to the directory containing the 9 Olist CSV files.
-
-All other settings are loaded via :class:`app.config.Settings` and may be
-supplied via a `.env` file in the working directory.
+Without --data-dir it uses the full dataset in data/raw when present, otherwise
+the committed sample in data/sample.
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 import time
+from pathlib import Path
 
-from app.config import get_settings
-from etl.clean import run_clean
-from etl.enrich import run_enrich
-from etl.load import run_load
+from sqlalchemy import create_engine, text
 
-# ---------------------------------------------------------------------------
-# Logging configuration
-# ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-    stream=sys.stdout,
-)
+from app.config import BACKEND_ROOT, get_settings
+from etl.extract import read_olist
+from etl.features import add_point_in_time_features
+from etl.load import load_shipments
+from etl.transform import build_orders
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("etl")
+SAMPLE_DIR = BACKEND_ROOT.parent / "data" / "sample"
 
 
-def main() -> None:
-    """Execute the full ETL pipeline: clean → enrich → load."""
-    t_global = time.perf_counter()
-    settings = get_settings()
+def default_data_dir() -> Path:
+    raw = get_settings().DATA_DIR
+    has_raw = any(raw.glob("olist_orders_dataset.csv*")) if raw.is_dir() else False
+    return raw if has_raw else SAMPLE_DIR
 
-    logger.info(
-        "LogiTrack ETL starting — env=%s, raw_path=%s",
-        settings.ENVIRONMENT,
-        settings.DATA_RAW_PATH,
-    )
 
-    # ------------------------------------------------------------------
-    # Stage 1: Clean
-    # ------------------------------------------------------------------
-    try:
-        df_delivered, df_all = run_clean(settings.DATA_RAW_PATH)
-    except FileNotFoundError as exc:
-        logger.critical("Clean stage failed — %s", exc)
-        sys.exit(1)
-    except Exception as exc:  # noqa: BLE001
-        logger.critical("Unexpected error in clean stage: %s", exc, exc_info=True)
-        sys.exit(1)
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data-dir", type=Path, default=None)
+    parser.add_argument("--if-empty", action="store_true", help="skip if shipments has rows")
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 
-    # ------------------------------------------------------------------
-    # Stage 2: Enrich
-    # ------------------------------------------------------------------
-    try:
-        # geo_df is loaded separately since it is not part of the delivered slice
-        from etl.clean import load_raw_csvs  # local import to avoid circular dep
+    engine = create_engine(get_settings().sync_database_url)
+    if args.if_empty:
+        with engine.connect() as conn:
+            if conn.execute(text("SELECT EXISTS (SELECT 1 FROM shipments)")).scalar():
+                logger.info("shipments already loaded; skipping ETL")
+                return
 
-        dfs = load_raw_csvs(settings.DATA_RAW_PATH)
-        geo_df = dfs["olist_geolocation_dataset"]
-        df_enriched = run_enrich(df_delivered, geo_df)
-    except Exception as exc:  # noqa: BLE001
-        logger.critical("Unexpected error in enrich stage: %s", exc, exc_info=True)
-        sys.exit(1)
-
-    # ------------------------------------------------------------------
-    # Stage 3: Load
-    # ------------------------------------------------------------------
-    try:
-        summary = run_load(df_enriched, df_all, settings.DATABASE_SYNC_URL)
-    except Exception as exc:  # noqa: BLE001
-        logger.critical("Unexpected error in load stage: %s", exc, exc_info=True)
-        sys.exit(1)
-
-    elapsed = time.perf_counter() - t_global
-    logger.info(
-        "ETL pipeline complete in %.1fs — shipments=%d, kpi_days=%d, sellers=%d.",
-        elapsed,
-        summary["shipments"],
-        summary["kpi_days"],
-        summary["sellers"],
-    )
+    data_dir = args.data_dir or default_data_dir()
+    started = time.perf_counter()
+    logger.info("reading %s", data_dir)
+    df = add_point_in_time_features(build_orders(read_olist(data_dir)))
+    load_shipments(engine, df)
+    logger.info("ETL finished in %.1fs", time.perf_counter() - started)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (FileNotFoundError, ValueError) as exc:
+        logger.error("ETL failed: %s", exc)
+        sys.exit(1)
