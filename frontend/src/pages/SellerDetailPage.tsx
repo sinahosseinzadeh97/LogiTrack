@@ -1,91 +1,54 @@
-import { useParams } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
-import { sellersApi } from '@/api/sellers'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
-import { format, parseISO } from 'date-fns'
-import { SkeletonChart } from '@/components/shared/SkeletonCard'
-import { AnimatedNumber } from '@/components/shared/AnimatedNumber'
+import { useState } from 'react'
+import { Link, useParams } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
-import { useNavigate } from '@tanstack/react-router'
+import { useModelCard, useSeller, useShipments } from '@/api/queries'
+import { TrendChart } from '@/components/charts/TrendChart'
+import { KPICard } from '@/components/shared/KPICard'
+import { Pagination } from '@/components/shared/Pagination'
+import { QueryState } from '@/components/shared/QueryState'
+import { Section } from '@/components/shared/Section'
+import { SkeletonChart } from '@/components/shared/SkeletonCard'
+import { ShipmentDrawer } from '@/components/shipments/ShipmentDrawer'
+import { ShipmentTable } from '@/components/shipments/ShipmentTable'
 
 export default function SellerDetailPage() {
   const { sellerId } = useParams({ from: '/protected/sellers/$sellerId' })
-  const navigate = useNavigate()
-  const { data, isLoading } = useQuery({
-    queryKey: ['seller', sellerId],
-    queryFn: () => sellersApi.getProfile(sellerId),
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const chartData = (data?.otif_trend ?? []).map((d) => ({
-    week: format(parseISO(d.week_start), 'MMM dd'),
-    otif: +(d.otif_rate * 100).toFixed(1),
-  }))
+  const seller = useSeller(sellerId)
+  const [page, setPage] = useState(1)
+  const shipments = useShipments({ seller_id: sellerId, page, page_size: 10 })
+  const threshold = useModelCard().data?.threshold
+  const [selected, setSelected] = useState<string | null>(null)
+  const s = seller.data
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}
-      style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+    <div className="page">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <Link to="/sellers" className="btn btn-ghost btn-sm"><ArrowLeft size={14} /> Sellers</Link>
+        <span className="font-mono text-muted" style={{ fontSize: '0.8rem' }}>{sellerId}</span>
+        {s?.seller_state && <span className="badge badge-gray">{s.seller_state}</span>}
+      </div>
 
-      <button className="btn btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={() => navigate({ to: '/sellers' })}>
-        <ArrowLeft size={14} /> Back to Sellers
-      </button>
+      <QueryState isLoading={false} error={seller.error}>
+        <div className="grid-kpi">
+          <KPICard loading={seller.isLoading} title="Orders" value={s?.orders} decimals={0} />
+          <KPICard loading={seller.isLoading} title="Late rate" value={s?.late_rate == null ? null : s.late_rate * 100} suffix="%" tone="danger"
+            hint={s ? `over ${s.delivered} delivered orders` : undefined} />
+          <KPICard loading={seller.isLoading} title="Late by, on average" value={s?.avg_delay_days_late} suffix=" d" tone="warn" />
+          <KPICard loading={seller.isLoading} title="Avg freight" value={s?.avg_freight} prefix="R$ " decimals={2} tone="green" />
+        </div>
 
-      {isLoading ? <SkeletonChart height={300} /> : data ? (
-        <>
-          {/* Profile header */}
-          <div className="card" style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Seller ID</div>
-              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82rem' }}>{data.seller_id}</div>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>State</div>
-              <span className="badge badge-blue">{data.seller_state}</span>
-            </div>
-            {[
-              { label: 'Total Orders', value: data.total_orders, suffix: '', decimals: 0, color: 'var(--accent-blue)' },
-              { label: 'Delay Rate',   value: data.delay_rate * 100, suffix: '%', decimals: 1, color: data.delay_rate > 0.4 ? 'var(--danger)' : 'var(--warn)' },
-              { label: 'Avg Delay',    value: data.avg_delay_days, suffix: 'd', decimals: 1, color: 'var(--warn)' },
-              { label: 'Avg Freight',  value: data.avg_freight_value, suffix: '', decimals: 0, color: 'var(--accent-green)', prefix: 'R$' },
-            ].map(({ label, value, suffix, decimals, color, prefix }) => (
-              <div key={label}>
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</div>
-                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '1.25rem', fontWeight: 700, color }}>
-                  <AnimatedNumber value={value} decimals={decimals} suffix={suffix} prefix={prefix} />
-                </div>
-              </div>
-            ))}
-          </div>
+        <Section title="On-time rate by month">
+          {seller.isLoading ? <SkeletonChart /> : <TrendChart data={s?.trend ?? []} height={220} />}
+        </Section>
+      </QueryState>
 
-          {/* OTIF trend */}
-          <div className="card">
-            <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '1rem' }}>
-              8-Week OTIF Trend
-            </div>
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -24 }}>
-                <defs>
-                  <linearGradient id="sellerGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="var(--accent-green)" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="var(--accent-green)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                <XAxis dataKey="week" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis domain={[0, 100]} tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `${v}%`} />
-                <Tooltip
-                  contentStyle={{ background: 'var(--bg-surface2)', border: '1px solid var(--border-strong)', borderRadius: 8, fontSize: '0.8rem' }}
-                  labelStyle={{ color: 'var(--text-secondary)' }}
-                  formatter={(v: any) => [`${(v as number).toFixed(1)}%`, 'OTIF']}
-                />
-                <ReferenceLine y={90} stroke="var(--accent-blue)" strokeDasharray="6 3" strokeWidth={1.5} />
-                <Area type="monotone" dataKey="otif" stroke="var(--accent-green)" strokeWidth={2.5} fill="url(#sellerGrad)" dot={false} animationDuration={800} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </>
-      ) : null}
-    </motion.div>
+      <Section title="Orders">
+        <QueryState isLoading={shipments.isLoading} error={shipments.error} isEmpty={!shipments.data?.items.length}>
+          <ShipmentTable items={shipments.data?.items ?? []} threshold={threshold} onSelect={setSelected} />
+          <Pagination page={page} pageSize={10} total={shipments.data?.total ?? 0} noun="orders" onChange={setPage} />
+        </QueryState>
+      </Section>
+      <ShipmentDrawer orderId={selected} threshold={threshold} onClose={() => setSelected(null)} />
+    </div>
   )
 }
