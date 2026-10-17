@@ -40,7 +40,7 @@ CV_FOLD_MONTHS = [8, 6, 4, 2]  # fold cutoffs, in months before the final cutoff
 
 
 def split(df: pd.DataFrame, cutoff: pd.Timestamp) -> tuple[pd.DataFrame, pd.DataFrame]:
-    labelled = df[df["is_late"].notna()].sort_values("purchase_ts")
+    labelled = df[df["is_late"].notna()].sort_values(["purchase_ts", "order_id"], kind="stable")
     promised = pd.to_datetime(labelled["estimated_delivery"])
     train = labelled[(labelled["purchase_ts"] < cutoff) & (promised < cutoff)]
     test = labelled[labelled["purchase_ts"] >= cutoff]
@@ -141,7 +141,7 @@ def importance(
 
 def defaults(test: pd.DataFrame, numeric: list[str]) -> dict[str, Any]:
     """Typical values used to pre-fill the what-if form."""
-    values: dict[str, Any] = {c: float(test[c].median()) for c in numeric}
+    values: dict[str, Any] = {c: round(float(test[c].median()), 3) for c in numeric}
     values.update({c: test[c].mode().iat[0] for c in CATEGORICAL})
     return values
 
@@ -200,7 +200,8 @@ def train(df: pd.DataFrame, cutoff: pd.Timestamp) -> tuple[Pipeline, dict[str, A
 
 
 def write_scores(engine: Engine, df: pd.DataFrame, pipe: Pipeline) -> None:
-    """Score every order and store P(late) in shipments.delay_probability."""
+    """Score every order that has items and store P(late) in shipments.delay_probability."""
+    df = df[df["n_items"] > 0]  # orders with no items (never fulfilled) have nothing to score
     scores = pd.DataFrame({"order_id": df["order_id"], "p": pipe.predict_proba(as_frame(df))[:, 1]})
     buffer = io.StringIO()
     scores.to_csv(buffer, index=False, header=False)
@@ -234,7 +235,9 @@ def main(argv: list[str] | None = None) -> None:
 
     settings = get_settings()
     engine = create_engine(settings.sync_database_url)
-    df = pd.read_sql("SELECT * FROM shipments", engine, parse_dates=["purchase_ts", "delivered_ts"])
+    # Fixed row order keeps training reproducible: the early-stopping split is positional.
+    query = "SELECT * FROM shipments ORDER BY order_id"
+    df = pd.read_sql(query, engine, parse_dates=["purchase_ts", "delivered_ts"])
 
     if args.if_missing and model_store.exists(settings.MODEL_DIR):
         if df["delay_probability"].isna().all():

@@ -31,3 +31,6 @@ frontend/dist/
 .vscode/
 .DS_Store
 .claude/
+
+# Personal learning notes (kept local)
+docs/LEARNING-LOG.md

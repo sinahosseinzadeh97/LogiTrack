@@ -1,1 +1,1 @@
-"""ML package — delay prediction model, training pipeline, and MLflow tracking."""
+"""Late-delivery model: feature pipeline, out-of-time training, model storage."""
