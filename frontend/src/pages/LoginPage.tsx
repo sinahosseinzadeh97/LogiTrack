@@ -5,7 +5,12 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, Truck, Lock, Mail } from 'lucide-react'
+import { AxiosError } from 'axios'
 import { useAuthStore } from '@/stores/authStore'
+
+// Set at build time for the public demo only; leave unset anywhere real.
+const DEMO_PASSWORD = import.meta.env.VITE_DEMO_PASSWORD
+const DEMO_ROLES = ['viewer', 'analyst', 'admin'] as const
 
 const schema = z.object({
   email:    z.string().email('Invalid email address'),
@@ -19,7 +24,7 @@ export default function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuthStore()
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormValues>({
+  const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(schema),
   })
 
@@ -28,8 +33,9 @@ export default function LoginPage() {
     try {
       await login(data.email, data.password)
       navigate({ to: '/overview' })
-    } catch {
-      setApiError('Invalid email or password. Please try again.')
+    } catch (error) {
+      const tooMany = error instanceof AxiosError && error.response?.status === 429
+      setApiError(tooMany ? 'Too many attempts. Wait a minute and try again.' : 'Invalid email or password.')
     }
   }
 
@@ -53,7 +59,7 @@ export default function LoginPage() {
           </div>
           <h1 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '0.25rem' }}>LogiTrack</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            Logistics KPI &amp; Delay Prediction Platform
+            Delivery performance and late-delivery risk for 99k Olist orders
           </p>
         </div>
 
@@ -130,9 +136,19 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-          LogiTrack v5.0 · Powered by FastAPI + React
-        </p>
+        {DEMO_PASSWORD && (
+          <div className="card" style={{ marginTop: '1rem', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <span className="text-muted" style={{ fontSize: '0.75rem' }}>Demo accounts — pick one to fill the form:</span>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {DEMO_ROLES.map((role) => (
+                <button key={role} type="button" className="btn btn-ghost btn-sm" onClick={() => {
+                  setValue('email', `${role}@logitrack.dev`)
+                  setValue('password', DEMO_PASSWORD)
+                }}>{role}</button>
+              ))}
+            </div>
+          </div>
+        )}
       </motion.div>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

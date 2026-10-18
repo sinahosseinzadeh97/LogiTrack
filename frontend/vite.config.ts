@@ -4,11 +4,13 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
+// Where `npm run dev` forwards /api and /auth (the FastAPI server).
+const apiTarget = process.env.API_PROXY_TARGET ?? 'http://localhost:8000'
+
 export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: [],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
   plugins: [react(), tailwindcss()],
@@ -20,14 +22,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/auth': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
+      '/api': { target: apiTarget, changeOrigin: true },
+      '/auth': { target: apiTarget, changeOrigin: true },
     },
   },
 })

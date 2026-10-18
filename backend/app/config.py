@@ -1,145 +1,58 @@
-"""
-Application configuration loaded from environment variables via pydantic-settings.
-
-All secrets and connection strings are expected in a .env file at the project
-root (or as real environment variables in production). Never commit .env.
-"""
+"""Runtime settings, read from environment variables (or a .env file)."""
 
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_ROOT = Path(__file__).resolve().parent.parent
+DEV_SECRET_KEY = "dev-only-insecure-secret-key-change-me"
 
 
 class Settings(BaseSettings):
-    """Central settings object for the LogiTrack backend.
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    All values are read from environment variables (case-sensitive) or from a
-    .env file located at the project root.  Defaults are provided only for
-    non-secret, low-risk values.
-    """
+    ENVIRONMENT: Literal["development", "test", "production"] = "development"
 
-    # ------------------------------------------------------------------
-    # Database
-    # ------------------------------------------------------------------
-    DATABASE_URL: str = Field(
-        ...,
-        description=(
-            "Async PostgreSQL DSN used by SQLAlchemy / asyncpg at runtime. "
-            "Format: postgresql+asyncpg://user:password@host:port/dbname"
-        ),
-    )
-    DATABASE_SYNC_URL: str = Field(
-        ...,
-        description=(
-            "Synchronous PostgreSQL DSN used by Alembic for migrations. "
-            "Format: postgresql+psycopg2://user:password@host:port/dbname"
-        ),
-    )
+    # One plain DSN; the async and sync driver variants are derived from it.
+    DATABASE_URL: str = "postgresql://logitrack:logitrack@localhost:5432/logitrack"
 
-    # ------------------------------------------------------------------
-    # Security / Auth
-    # ------------------------------------------------------------------
-    SECRET_KEY: str = Field(
-        ...,
-        description="Random 32-byte hex string used to sign JWT tokens.",
-    )
-    ALGORITHM: str = Field(
-        default="HS256",
-        description="JWT signing algorithm.",
-    )
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
-        default=30,
-        gt=0,
-        description="Lifetime of a short-lived access token in minutes.",
-    )
-    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(
-        default=7,
-        gt=0,
-        description="Lifetime of a refresh token in days.",
-    )
+    SECRET_KEY: str = DEV_SECRET_KEY
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, gt=0)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, gt=0)
+    LOGIN_RATE_LIMIT: str = "5/minute"
 
-    # ------------------------------------------------------------------
-    # Object Storage (MinIO / S3-compatible)
-    # ------------------------------------------------------------------
-    S3_ENDPOINT_URL: str = Field(
-        ...,
-        description="Full URL to the MinIO / S3 endpoint, e.g. http://minio:9000.",
-    )
-    S3_ACCESS_KEY: str = Field(..., description="MinIO root user or IAM access key.")
-    S3_SECRET_KEY: str = Field(..., description="MinIO root password or IAM secret.")
-    S3_BUCKET_NAME: str = Field(
-        default="logitrack",
-        description="Target bucket for model artefacts and processed exports.",
-    )
+    CORS_ORIGINS: str = "http://localhost:5173"
 
-    # ------------------------------------------------------------------
-    # ML / Prediction
-    # ------------------------------------------------------------------
-    ALERT_THRESHOLD: float = Field(
-        default=0.65,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Probability cutoff above which a shipment is flagged as at-risk "
-            "of late delivery."
-        ),
-    )
+    DATA_DIR: Path = BACKEND_ROOT.parent / "data" / "raw"
+    MODEL_DIR: Path = BACKEND_ROOT / "artifacts"
 
-    # ------------------------------------------------------------------
-    # ETL / Data paths
-    # ------------------------------------------------------------------
-    DATA_RAW_PATH: str = Field(
-        default="data/raw",
-        description="Relative path (from project root) to the raw CSV directory.",
-    )
+    # Password for the seeded demo accounts (admin/analyst/viewer@logitrack.dev).
+    DEMO_PASSWORD: str = "logitrack-demo"
 
-    # ------------------------------------------------------------------
-    # Runtime
-    # ------------------------------------------------------------------
-    ENVIRONMENT: str = Field(
-        default="development",
-        description="One of: development | staging | production.",
-    )
+    @model_validator(mode="after")
+    def _refuse_dev_secret_in_production(self) -> Settings:
+        if self.ENVIRONMENT == "production" and self.SECRET_KEY == DEV_SECRET_KEY:
+            raise ValueError("SECRET_KEY must be set explicitly in production.")
+        return self
 
-    # ------------------------------------------------------------------
-    # Rate limiting / caching
-    # ------------------------------------------------------------------
-    REDIS_URL: str | None = Field(
-        default=None,
-        description=(
-            "Redis connection URL (e.g. redis://redis:6379/0).  "
-            "When set, the rate-limiter and token-blacklist cache use Redis.  "
-            "When unset, an in-memory store is used (single-process only)."
-        ),
-    )
+    @property
+    def async_database_url(self) -> str:
+        return self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-    # ------------------------------------------------------------------
-    # CORS
-    # ------------------------------------------------------------------
-    CORS_ORIGINS: str = Field(
-        default="http://localhost:5173,http://localhost:3000",
-        description=(
-            "Comma-separated list of allowed CORS origins.  "
-            "Use '*' to allow all (development only)."
-        ),
-    )
+    @property
+    def sync_database_url(self) -> str:
+        return self.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=True,
-    )
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Return the singleton Settings instance (cached after first call).
-
-    Using ``lru_cache`` ensures the .env file is read exactly once per process
-    lifetime, which is the expected behaviour in both application code and tests
-    (tests can clear the cache via ``get_settings.cache_clear()``).
-    """
-    return Settings()  # type: ignore[call-arg]
+    return Settings()

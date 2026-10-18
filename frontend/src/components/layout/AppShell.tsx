@@ -6,9 +6,9 @@ export function AppShell() {
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <Sidebar />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
         <TopBar />
-        <main style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
+        <main style={{ flex: 1, overflowY: 'auto', padding: 'clamp(1rem, 2vw, 1.5rem)' }}>
           <Outlet />
         </main>
       </div>

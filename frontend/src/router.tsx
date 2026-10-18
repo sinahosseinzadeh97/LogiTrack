@@ -1,133 +1,53 @@
 import {
-  createRootRoute,
-  createRoute,
-  createRouter,
-  Outlet,
-  redirect,
+  createRootRoute, createRoute, createRouter, lazyRouteComponent, Outlet, redirect,
 } from '@tanstack/react-router'
 import { AppShell } from '@/components/layout/AppShell'
-import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import LoginPage from '@/pages/LoginPage'
-import OverviewPage from '@/pages/OverviewPage'
-import ShipmentsPage from '@/pages/ShipmentsPage'
-import AlertsPage from '@/pages/AlertsPage'
-import SellersPage from '@/pages/SellersPage'
-import SellerDetailPage from '@/pages/SellerDetailPage'
-import RegionsPage from '@/pages/RegionsPage'
-import PredictionPage from '@/pages/PredictionPage'
-import ReportPage from '@/pages/ReportPage'
-import SettingsPage from '@/pages/SettingsPage'
-import { useAuthStore } from '@/stores/authStore'
+import { isAuthenticated } from '@/stores/authStore'
 
-// ── Root ─────────────────────────────────────────────────────────────────
 const rootRoute = createRootRoute({ component: Outlet })
 
-// ── Public ───────────────────────────────────────────────────────────────
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
   component: LoginPage,
   beforeLoad: () => {
-    if (useAuthStore.getState().is_authenticated) {
-      throw redirect({ to: '/overview' })
-    }
+    if (isAuthenticated()) throw redirect({ to: '/overview' })
   },
 })
 
-// ── Protected shell ───────────────────────────────────────────────────────
+// Every app page sits under this layout route, which requires a signed-in user.
 const protectedLayout = createRoute({
   getParentRoute: () => rootRoute,
   id: 'protected',
-  component: () => (
-    <ProtectedRoute>
-      <AppShell />
-    </ProtectedRoute>
-  ),
+  component: AppShell,
   beforeLoad: () => {
-    if (!useAuthStore.getState().is_authenticated) {
-      throw redirect({ to: '/login' })
-    }
+    if (!isAuthenticated()) throw redirect({ to: '/login' })
   },
 })
 
-// ── Index redirect ────────────────────────────────────────────────────────
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => { throw redirect({ to: '/overview' }) },
-  component: () => null,
+  beforeLoad: () => {
+    throw redirect({ to: '/overview' })
+  },
 })
 
-// ── App routes ────────────────────────────────────────────────────────────
-const overviewRoute = createRoute({
-  getParentRoute: () => protectedLayout,
-  path: '/overview',
-  component: OverviewPage,
-})
+// Written out one by one so TanStack Router keeps each literal path type.
+// Pages load lazily: the login screen doesn't pay for the charting library.
+const overview = createRoute({ getParentRoute: () => protectedLayout, path: '/overview', component: lazyRouteComponent(() => import('@/pages/OverviewPage')) })
+const shipments = createRoute({ getParentRoute: () => protectedLayout, path: '/shipments', component: lazyRouteComponent(() => import('@/pages/ShipmentsPage')) })
+const alerts = createRoute({ getParentRoute: () => protectedLayout, path: '/alerts', component: lazyRouteComponent(() => import('@/pages/AlertsPage')) })
+const sellers = createRoute({ getParentRoute: () => protectedLayout, path: '/sellers', component: lazyRouteComponent(() => import('@/pages/SellersPage')) })
+const seller = createRoute({ getParentRoute: () => protectedLayout, path: '/sellers/$sellerId', component: lazyRouteComponent(() => import('@/pages/SellerDetailPage')) })
+const regions = createRoute({ getParentRoute: () => protectedLayout, path: '/regions', component: lazyRouteComponent(() => import('@/pages/RegionsPage')) })
+const model = createRoute({ getParentRoute: () => protectedLayout, path: '/model', component: lazyRouteComponent(() => import('@/pages/ModelPage')) })
 
-const shipmentsRoute = createRoute({
-  getParentRoute: () => protectedLayout,
-  path: '/shipments',
-  component: ShipmentsPage,
-})
-
-const alertsRoute = createRoute({
-  getParentRoute: () => protectedLayout,
-  path: '/alerts',
-  component: AlertsPage,
-})
-
-const sellersRoute = createRoute({
-  getParentRoute: () => protectedLayout,
-  path: '/sellers',
-  component: SellersPage,
-})
-
-const sellerDetailRoute = createRoute({
-  getParentRoute: () => protectedLayout,
-  path: '/sellers/$sellerId',
-  component: SellerDetailPage,
-})
-
-const regionsRoute = createRoute({
-  getParentRoute: () => protectedLayout,
-  path: '/regions',
-  component: RegionsPage,
-})
-
-const predictionRoute = createRoute({
-  getParentRoute: () => protectedLayout,
-  path: '/prediction',
-  component: PredictionPage,
-})
-
-const reportsRoute = createRoute({
-  getParentRoute: () => protectedLayout,
-  path: '/reports',
-  component: ReportPage,
-})
-
-const settingsRoute = createRoute({
-  getParentRoute: () => protectedLayout,
-  path: '/settings',
-  component: SettingsPage,
-})
-
-// ── Route tree ────────────────────────────────────────────────────────────
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
-  protectedLayout.addChildren([
-    overviewRoute,
-    shipmentsRoute,
-    alertsRoute,
-    sellersRoute,
-    sellerDetailRoute,
-    regionsRoute,
-    predictionRoute,
-    reportsRoute,
-    settingsRoute,
-  ]),
+  protectedLayout.addChildren([overview, shipments, alerts, sellers, seller, regions, model]),
 ])
 
 export const router = createRouter({ routeTree })

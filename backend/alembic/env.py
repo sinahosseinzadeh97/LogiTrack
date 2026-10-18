@@ -12,8 +12,9 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
+
+from alembic import context
 
 # ---------------------------------------------------------------------------
 # Make the backend package importable from the alembic directory
@@ -23,9 +24,9 @@ _backend_root = Path(__file__).resolve().parent.parent
 if str(_backend_root) not in sys.path:
     sys.path.insert(0, str(_backend_root))
 
+import app.auth.models  # noqa: E402, F401  (registers the auth tables on Base.metadata)
 from app.config import get_settings  # noqa: E402
-from app.models import Base  # noqa: E402  — imports all ORM models for autogenerate
-import app.auth.models  # noqa: E402, F401 — registers User + TokenBlacklist with Base.metadata
+from app.models import Base  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Alembic Config object — gives access to values in alembic.ini
@@ -34,7 +35,7 @@ config = context.config
 
 # Inject the sync URL from settings so alembic.ini never needs it
 _settings = get_settings()
-config.set_main_option("sqlalchemy.url", _settings.DATABASE_SYNC_URL)
+config.set_main_option("sqlalchemy.url", _settings.sync_database_url)
 
 # Interpret the config file for Python logging
 if config.config_file_name is not None:

@@ -1,77 +1,27 @@
-# =============================================================================
-# LogiTrack Backend — Python 3.12 / FastAPI
-# Multi-stage build:
-#   builder — install all Python dependencies into a prefix
-#   runtime — minimal image with only what is needed to run
-# =============================================================================
+# FastAPI + ETL + training, one image. See backend/docker-entrypoint.sh for startup.
+FROM python:3.12-slim
 
-# ─────────────────────────────────────────────
-# Stage 1 — builder: install Python deps
-# ─────────────────────────────────────────────
-FROM python:3.12-slim AS builder
-
-# Install build-time OS dependencies (psycopg2 native build, gcc for some wheels)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential \
-        libpq-dev \
-        curl \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /build
-
-# Copy only the project manifest first (layer-cache friendly)
-COPY backend/pyproject.toml ./
-
-# Install into a dedicated prefix so we can copy it cleanly to the runtime stage
-RUN pip install --upgrade pip \
-    && pip install --no-cache-dir hatchling \
-    && pip install --no-cache-dir --prefix=/install -e ".[dev]" 2>/dev/null \
-    || pip install --no-cache-dir --prefix=/install -e .
-
-
-# ─────────────────────────────────────────────
-# Stage 2 — runtime: minimal production image
-# ─────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
-
-# Runtime OS dependencies:
-#   curl       — health-check probe
-#   poppler-utils — pdf2image (PDF → PNG preview for reports)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        curl \
-        poppler-utils \
-    && rm -rf /var/lib/apt/lists/*
-
-# Non-root user for security
-RUN groupadd --gid 1001 appgroup \
-    && useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
-
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /app
 
-# Copy installed packages from builder stage
-COPY --from=builder /install /usr/local
+# Dependencies first, so code changes don't reinstall them.
+COPY backend/pyproject.toml ./
+RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))" > requirements.txt \
+    && pip install -r requirements.txt
 
-# Copy application source (only what the app needs at runtime)
-COPY backend/app/        ./app/
-COPY backend/core/       ./core/
-COPY backend/ml/         ./ml/
-COPY backend/reports/    ./reports/
-COPY backend/alembic/    ./alembic/
-COPY backend/alembic.ini ./alembic.ini
-COPY backend/pyproject.toml ./pyproject.toml
+COPY backend/ ./
+COPY data/sample/ /data/sample/
+RUN pip install --no-deps . \
+    && useradd --create-home --uid 1001 app \
+    && mkdir -p /app/artifacts && chown app /app/artifacts
 
-# Ensure the app package is importable (editable install path)
-RUN pip install --no-cache-dir -e . --no-deps 2>/dev/null || true
-
-# Switch to non-root user
-USER appuser
-
+USER app
+ENV DATA_DIR=/data/raw MODEL_DIR=/app/artifacts
 EXPOSE 8000
 
-# Health check — polls /health every 30 s; allows 60 s startup time
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --start-period=180s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+ENTRYPOINT ["./docker-entrypoint.sh"]
+# One worker: the login rate limiter keeps its counters in process memory.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
