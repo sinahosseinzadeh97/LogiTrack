@@ -133,7 +133,8 @@ default secret.
 docker compose up --build
 ```
 
-Open <http://localhost:8080>. The sign-in page offers three demo accounts
+Open <http://localhost:8080> (if that port is taken, run `WEB_PORT=8090 docker compose up --build`).
+The sign-in page offers three demo accounts
 (`viewer@`, `analyst@`, `admin@logitrack.dev`, password `logitrack-demo`). The first start migrates the
 database, loads the bundled 25% sample, trains the model and seeds the accounts (about a minute).
 

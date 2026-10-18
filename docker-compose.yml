@@ -1,4 +1,5 @@
 # One command: `docker compose up --build`, then open http://localhost:8080
+# (set WEB_PORT to use another port).
 # Uses the bundled 25% sample unless the full Olist CSVs are in ./data/raw.
 services:
   db:
@@ -22,7 +23,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-logitrack}:${POSTGRES_PASSWORD:-logitrack}@db:5432/${POSTGRES_DB:-logitrack}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       SECRET_KEY: ${SECRET_KEY:-dev-only-insecure-secret-key-change-me}
-      CORS_ORIGINS: http://localhost:8080
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-8080}
       SEED_DEMO_USERS: ${SEED_DEMO_USERS:-true}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-logitrack-demo}
     volumes:
@@ -39,7 +40,7 @@ services:
       args:
         VITE_DEMO_PASSWORD: ${DEMO_PASSWORD:-logitrack-demo}
     ports:
-      - "8080:80"
+      - "${WEB_PORT:-8080}:80"
     depends_on:
       api:
         condition: service_healthy
